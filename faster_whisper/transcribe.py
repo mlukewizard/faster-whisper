@@ -149,9 +149,29 @@ class WhisperModel:
         self.time_precision = 0.02
         self.max_length = 448
 
+    def load_audio(self,
+                   audio_path,
+                   ):
+        sampling_rate = self.feature_extractor.sampling_rate
+        audio = decode_audio(audio_path, sampling_rate=sampling_rate)
+        return audio
+
+    def calculate_mel(
+        self,
+        audio
+    ):
+        self.sampling_rate = self.feature_extractor.sampling_rate
+        self.duration = audio.shape[0] / self.sampling_rate
+
+        self.logger.info(
+            "Processing audio with duration %s", format_timestamp(self.duration)
+        )
+
+        return self.feature_extractor(audio)
+
     def transcribe(
         self,
-        audio: Union[str, BinaryIO, np.ndarray],
+        features: Union[str, BinaryIO, np.ndarray],
         language: Optional[str] = None,
         task: str = "transcribe",
         beam_size: int = 5,
@@ -233,47 +253,14 @@ class WhisperModel:
             - a generator over transcribed segments
             - an instance of TranscriptionInfo
         """
-        sampling_rate = self.feature_extractor.sampling_rate
 
-        if not isinstance(audio, np.ndarray):
-            audio = decode_audio(audio, sampling_rate=sampling_rate)
-
-        duration = audio.shape[0] / sampling_rate
-
-        self.logger.info(
-            "Processing audio with duration %s", format_timestamp(duration)
-        )
-
+        if not isinstance(features, np.ndarray):
+            raise ValueError("Only pass audio features")
+        
         if vad_filter:
-            if vad_parameters is None:
-                vad_parameters = VadOptions()
-            elif isinstance(vad_parameters, dict):
-                vad_parameters = VadOptions(**vad_parameters)
-            speech_chunks = get_speech_timestamps(audio, vad_parameters)
-            audio = collect_chunks(audio, speech_chunks)
-
-            self.logger.info(
-                "VAD filter removed %s of audio",
-                format_timestamp(duration - (audio.shape[0] / sampling_rate)),
-            )
-
-            if self.logger.isEnabledFor(logging.DEBUG):
-                self.logger.debug(
-                    "VAD filter kept the following audio segments: %s",
-                    ", ".join(
-                        "[%s -> %s]"
-                        % (
-                            format_timestamp(chunk["start"] / sampling_rate),
-                            format_timestamp(chunk["end"] / sampling_rate),
-                        )
-                        for chunk in speech_chunks
-                    ),
-                )
-
+            raise ValueError("Vad filter not supported")
         else:
             speech_chunks = None
-
-        features = self.feature_extractor(audio)
 
         encoder_output = None
         all_language_probs = None
@@ -334,12 +321,12 @@ class WhisperModel:
         segments = self.generate_segments(features, tokenizer, options, encoder_output)
 
         if speech_chunks:
-            segments = restore_speech_timestamps(segments, speech_chunks, sampling_rate)
+            segments = restore_speech_timestamps(segments, speech_chunks, self.sampling_rate)
 
         info = TranscriptionInfo(
             language=language,
             language_probability=language_probability,
-            duration=duration,
+            duration=self.duration,
             transcription_options=options,
             vad_options=vad_parameters,
             all_language_probs=all_language_probs,
