@@ -57,6 +57,8 @@ def decode_audio(
 
     # Convert s16 back to f32.
     audio = audio.astype(np.float32) / 32768.0
+    
+    audio = audio[0:30*sampling_rate] # trimming to 30s
 
     if split_stereo:
         left_channel = audio[0::2]
